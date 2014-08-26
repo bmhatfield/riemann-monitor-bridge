@@ -9,14 +9,57 @@ import "runtime"
 import "net/http"
 
 // 3rd Party
-// import "github.com/amir/raidman"
+import "github.com/amir/raidman"
 
 const VERSION = "0.0.1"
 
 var showVersion *bool = flag.Bool("version", false, "Print version to screen and exit")
 
-func pingHandler(resp http.ResponseWriter, req *http.Request) {
+var riemannHost *string = flag.String("host", "localhost:5555", "Host:Port combination")
 
+func pingHandler(resp http.ResponseWriter, req *http.Request) {
+    c, err := raidman.Dial("tcp", *riemannHost)
+    if err != nil {
+        log.Println(err)
+        resp.WriteHeader(500)
+        resp.Write([]byte("Unable to connect to Riemann"))
+        return
+    } else {
+        defer c.Close()
+    }
+
+    var event = &raidman.Event{
+        State:   "ok",
+        Host:    "http_pinger",
+        Service: "monitoring-bridge",
+        Ttl:     600,
+        Tags:    []string{"nonotify"},
+    }
+
+    err = c.Send(event)
+    if err != nil {
+        log.Println(err)
+        resp.WriteHeader(500)
+        resp.Write([]byte("Unable to send event to Riemann"))
+        return
+    }
+
+    events, err := c.Query("(service = \"monitoring-bridge\")")
+    if err != nil {
+        log.Println(err)
+        resp.WriteHeader(500)
+        resp.Write([]byte("Unable to query event from Riemann"))
+        return
+    }
+
+    if len(events) < 1 {
+        resp.WriteHeader(500)
+        resp.Write([]byte("Event written but not found"))
+        return
+    } else {
+        log.Printf("Event Found: %+v", events[0])
+        resp.Write([]byte("Event Found!"))
+    }
 }
 
 func main() {
